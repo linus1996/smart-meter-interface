@@ -1,13 +1,11 @@
 import logging
-from gurux_dlms import GXDLMSClient, GXDLMSConverter, GXByteBuffer, GXDLMSTranslator
-from gurux_dlms.enums import InterfaceType, Authentication
-from gurux_dlms.secure import GXDLMSSecureClient
-from gurux_dlms.objects import GXDLMSObject
-import time
 import random
 import socket
+import time
+from gurux_dlms import GXDLMSClient, GXDLMSObject, GXByteBuffer
+from gurux_dlms.enums import InterfaceType, Authentication
 
-# Configure logging
+# Setup logging
 logging.basicConfig(level=logging.DEBUG)
 
 # Create a DLMS/COSEM client
@@ -18,10 +16,10 @@ client.use_logical_name_referencing = True
 client.interface_type = InterfaceType.HDLC
 client.authentication = Authentication.NONE
 
-# Define the simulated register class
+# Define the simulated register class as a subclass of GXDLMSObject
 class SimulatedDLMSRegister(GXDLMSObject):
-    def __init__(self, logical_name):
-        super().__init__()
+    def __init__(self, client, logical_name):
+        super().__init__(client, GXDLMSObject.Type.AARQ)
         self.logical_name = logical_name
         self.value = None
 
@@ -30,17 +28,20 @@ class SimulatedDLMSRegister(GXDLMSObject):
 
 def create_and_send_message():
     try:
-        energy_register = SimulatedDLMSRegister("1.0.1.8.0.255")
+        energy_register = SimulatedDLMSRegister(client, "1.0.1.8.0.255")
         energy_value = random.randint(10000, 20000)
         energy_register.update_value(energy_value)
         logging.debug(f"Simulated energy value set to: {energy_value}")
 
         # Create a request to read the value of the register
-        data = client.read(energy_register)
-        bb = GXByteBuffer()
-        client.getMessages(data, bb)
-        
-        return bb.array()  # Return the bytes to be sent over the network
+        request = client.get_request(energy_register, GXDLMSClient.READ)
+        if request:
+            message = GXByteBuffer()
+            request.get_message(message)
+            return message.array()  # Return the bytes to be sent over the network
+        else:
+            logging.error("Failed to create DLMS request")
+            return None
     except Exception as e:
         logging.error(f"Error during create_and_send_message: {e}")
         return None
@@ -49,7 +50,7 @@ def send_message_over_network(message):
     while True:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect(('192.168.53.5', 12345))
+                s.connect(('192.168.53.5', 12345))  # Replace with your receiver's IP and port
                 s.sendall(message)
                 logging.info("Message sent over network")
                 break  # Exit the loop if message sent successfully
